@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from dm_control import mujoco
 from dm_control.rl import control
 from dm_control.suite import base
-
+import open3d as o3d
 from constants import DT, XML_DIR, START_ARM_POSE
 from constants import PUPPET_GRIPPER_POSITION_UNNORMALIZE_FN
 from constants import MASTER_GRIPPER_POSITION_NORMALIZE_FN
@@ -18,6 +18,14 @@ e = IPython.embed
 BOX_POSE = [None] # to be changed from outside
 
 
+
+def make_intrinsics(physics,height, width,cam_id):
+    """Return an Open3D PinholeCameraIntrinsic built from MuJoCo camera info."""
+    fovy_deg = float(physics.model.cam_fovy[cam_id])          # vertical FOV in degrees
+    fy = 0.5 * height / math.tan(math.radians(fovy_deg) / 2)  # focal length in pixels
+    fx = fy * (width / height)                                # square pixels assumption
+    cx, cy = width / 2, height / 2
+    return o3d.camera.PinholeCameraIntrinsic(width, height, fx, fy, cx, cy)
 
 def make_sim_env(task_name):
     """
@@ -105,10 +113,10 @@ class BimanualViperXTask(base.Task):
     
 
 
-    def get_camera_intrinsics(self,physics,height,width,cam_id):
-        fovy = physics.model.cam_fovy[cam_id]
-        f = 0.5 * height / math.tan(fovy * math.pi / 360) 
-        return np.array(((f, 0, width / 2), (0, f, height / 2), (0, 0, 1)))
+    # def get_camera_intrinsics(self,physics,height,width,cam_id):
+    #     fovy = physics.model.cam_fovy[cam_id]
+    #     f = 0.5 * height / math.tan(fovy * math.pi / 360) 
+    #     return np.array(((f, 0, width / 2), (0, f, height / 2), (0, 0, 1)))
 
     def get_observation(self, physics):
         obs = collections.OrderedDict()
@@ -128,14 +136,22 @@ class BimanualViperXTask(base.Task):
         c_id2 = physics.model.name2id('angle', 'camera')
         c_id3 = physics.model.name2id('front_close', 'camera')
 
-        k1 = self.get_camera_intrinsics(physics,width,height,c_id1)
-        k2 = self.get_camera_intrinsics(physics,width,height,c_id2)
-        k3 = self.get_camera_intrinsics(physics,width,height,c_id3)
+        k1 = make_intrinsics(physics,width,height,c_id1)
+        k2 = make_intrinsics(physics,width,height,c_id2)
+        k3 = make_intrinsics(physics,width,height,c_id3)
+
+        d1 = physics.render(height=480, width=640, camera_id='top',depth=True)
+        d2 = physics.render(height=480, width=640, camera_id='angle',depth=True)
+        d3 = physics.render(height=480, width=640, camera_id='front_close',depth=True)
+
+        od1 = o3d.geometry.Image(d1.astype(np.float32))
+        od2 = o3d.geometry.Image(d2.astype(np.float32))
+        od3 = o3d.geometry.Image(d3.astype(np.float32))
 
         obs['pc'] = dict()
-        obs['pc']['top'] = k1
-        obs['pc']['angle'] = k2
-        obs['pc']['front_close'] = k3
+        obs['pc']['top'] = o3d.geometry.PointCloud.create_from_depth_image(od1, k1)
+        obs['pc']['angle'] = o3d.geometry.PointCloud.create_from_depth_image(od2, k2)
+        obs['pc']['front_close'] = o3d.geometry.PointCloud.create_from_depth_image(od3, k3)
 
         # obs['depths'] = dict()
         # obs['depths']['top'] = physics.render(height=480, width=640, camera_id='top',depth=True)
