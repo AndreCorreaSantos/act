@@ -11,11 +11,13 @@ from constants import PUPPET_GRIPPER_POSITION_UNNORMALIZE_FN
 from constants import MASTER_GRIPPER_POSITION_NORMALIZE_FN
 from constants import PUPPET_GRIPPER_POSITION_NORMALIZE_FN
 from constants import PUPPET_GRIPPER_VELOCITY_NORMALIZE_FN
-
+import math
 import IPython
 e = IPython.embed
 
 BOX_POSE = [None] # to be changed from outside
+
+
 
 def make_sim_env(task_name):
     """
@@ -100,17 +102,45 @@ class BimanualViperXTask(base.Task):
     @staticmethod
     def get_env_state(physics):
         raise NotImplementedError
+    
+
+
+    def get_camera_intrinsics(self,physics,height,width,cam_id):
+        fovy = physics.model.cam_fovy[cam_id]
+        f = 0.5 * height / math.tan(fovy * math.pi / 360) 
+        return np.array(((f, 0, width / 2), (0, f, height / 2), (0, 0, 1)))
 
     def get_observation(self, physics):
         obs = collections.OrderedDict()
         obs['qpos'] = self.get_qpos(physics)
         obs['qvel'] = self.get_qvel(physics)
         obs['env_state'] = self.get_env_state(physics)
+
         obs['images'] = dict()
         obs['images']['top'] = physics.render(height=480, width=640, camera_id='top')
         obs['images']['angle'] = physics.render(height=480, width=640, camera_id='angle')
         obs['images']['vis'] = physics.render(height=480, width=640, camera_id='front_close')
 
+
+        height,width=480,640
+
+        c_id1 = physics.model.name2id('top', 'camera')
+        c_id2 = physics.model.name2id('angle', 'camera')
+        c_id3 = physics.model.name2id('front_close', 'camera')
+
+        k1 = self.get_camera_intrinsics(physics,width,height,c_id1)
+        k2 = self.get_camera_intrinsics(physics,width,height,c_id2)
+        k3 = self.get_camera_intrinsics(physics,width,height,c_id3)
+
+        obs['pc'] = dict()
+        obs['pc']['top'] = k1
+        obs['pc']['angle'] = k2
+        obs['pc']['front_close'] = k3
+
+        # obs['depths'] = dict()
+        # obs['depths']['top'] = physics.render(height=480, width=640, camera_id='top',depth=True)
+        # obs['depths']['angle'] = physics.render(height=480, width=640, camera_id='angle',depth=True)
+        # obs['depths']['vis'] = physics.render(height=480, width=640, camera_id='front_close',depth=True)
         return obs
 
     def get_reward(self, physics):

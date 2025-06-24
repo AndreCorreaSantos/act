@@ -13,6 +13,8 @@ from scripted_policy import PickAndTransferPolicy, InsertionPolicy
 import IPython
 e = IPython.embed
 
+def linearize_depth(depth_buffer, near=0.01, far=10.0):
+    return near * far / (far - (far - near) * depth_buffer)
 
 def main(args):
     """
@@ -96,6 +98,7 @@ def main(args):
 
         episode_replay = [ts]
         # setup plotting
+        # depth_map = ts.observation['depths'][render_cam_name]
         if onscreen_render:
             ax = plt.subplot()
             plt_img = ax.imshow(ts.observation['images'][render_cam_name])
@@ -104,8 +107,14 @@ def main(args):
             action = joint_traj[t]
             ts = env.step(action)
             episode_replay.append(ts)
+
+            print(ts.observation['pc']['angle'])
+
             if onscreen_render:
                 plt_img.set_data(ts.observation['images'][render_cam_name])
+
+                # depth_map = ts.observation['depths'][render_cam_name]
+                # plt_img.set_data(linearize_depth(depth_map))
                 plt.pause(0.02)
 
         episode_return = np.sum([ts.reward for ts in episode_replay[1:]])
