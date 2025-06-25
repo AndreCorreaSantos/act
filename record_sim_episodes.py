@@ -110,10 +110,6 @@ def main(args):
             ts = env.step(action)
             episode_replay.append(ts)
 
-            print(ts.observation['pc']['angle'])
-            # sys.exit()
-            
-
             if onscreen_render:
                 plt_img.set_data(ts.observation['images'][render_cam_name])
 
@@ -167,7 +163,7 @@ def main(args):
             
             data_dict['/observations/qpos'].append(ts.observation['qpos'])
             data_dict['/observations/qvel'].append(ts.observation['qvel'])
-            data_dict['/observations/pc'].append(ts.observation['pc'])
+            data_dict['/observations/pc'].append(ts.observation['pc']['angle'])
             data_dict['/action'].append(action)
             
             for cam_name in camera_names:
@@ -190,7 +186,13 @@ def main(args):
                 # _ = point_cloud.create_dataset(cam_name, (max_timesteps,), ) # SAVE POINT CLOUDS HERE, SHAPE: 
             # compression='gzip',compression_opts=2,)
             # compression=32001, compression_opts=(0, 0, 0, 0, 9, 1, 1), shuffle=False)
-            pc = obs.create_dataset('pc',(max_timesteps,))
+            pc_group = obs.create_group('pc')
+            print("saving pc")
+            for i, pc in enumerate(data_dict['/observations/pc']):
+                pc_array = np.asarray(pc.points).astype(np.float32)  # (N, 3)
+                pc_group.create_dataset(str(i), data=pc_array, compression='gzip')
+                print(i)
+
             qpos = obs.create_dataset('qpos', (max_timesteps, 14))
             qvel = obs.create_dataset('qvel', (max_timesteps, 14))
             action = root.create_dataset('action', (max_timesteps, 14))
