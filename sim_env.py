@@ -13,10 +13,12 @@ from constants import PUPPET_GRIPPER_POSITION_NORMALIZE_FN
 from constants import PUPPET_GRIPPER_VELOCITY_NORMALIZE_FN
 import math
 import IPython
+from florence import Florence2
+from PIL import Image
+
 e = IPython.embed
 
 BOX_POSE = [None] # to be changed from outside
-
 
 
 def make_intrinsics(physics,height, width,cam_id):
@@ -64,6 +66,7 @@ def make_sim_env(task_name):
 class BimanualViperXTask(base.Task):
     def __init__(self, random=None):
         super().__init__(random=random)
+        self.florence = Florence2(gpu=True) # STARTING UP FLORENCE FOR THE POINT CLOUDS
 
     def before_step(self, action, physics):
         left_arm_action = action[:6]
@@ -108,16 +111,33 @@ class BimanualViperXTask(base.Task):
         return np.concatenate([left_arm_qvel, left_gripper_qvel, right_arm_qvel, right_gripper_qvel])
 
     @staticmethod
+    def get_pc(physics, bbox):
+        height, width = 480, 640
+        c_id = physics.model.name2id('angle', 'camera')
+        k = make_intrinsics(physics, width, height, c_id)
+
+        x1, y1, x2, y2 = map(int, bbox[0])
+        print(f"{x1} {y1} {x2} {y2}")
+        d = physics.render(height=height, width=width, camera_id='angle', depth=True)
+        cropped_d = d[y1:y2, x1:x2]
+        od = o3d.geometry.Image(cropped_d.astype(np.float32))
+
+        cropped_k = o3d.camera.PinholeCameraIntrinsic(
+            width=x2 - x1,
+            height=y2 - y1,
+            fx=k.intrinsic_matrix[0][0],
+            fy=k.intrinsic_matrix[1][1],
+            cx=k.intrinsic_matrix[0][2] - x1,
+            cy=k.intrinsic_matrix[1][2] - y1
+        )
+
+        pc = o3d.geometry.PointCloud.create_from_depth_image(od, cropped_k)
+        return pc
+
+    @staticmethod
     def get_env_state(physics):
         raise NotImplementedError
     
-
-
-    # def get_camera_intrinsics(self,physics,height,width,cam_id):
-    #     fovy = physics.model.cam_fovy[cam_id]
-    #     f = 0.5 * height / math.tan(fovy * math.pi / 360) 
-    #     return np.array(((f, 0, width / 2), (0, f, height / 2), (0, 0, 1)))
-
     def get_observation(self, physics):
         obs = collections.OrderedDict()
         obs['qpos'] = self.get_qpos(physics)
@@ -128,35 +148,14 @@ class BimanualViperXTask(base.Task):
         obs['images']['top'] = physics.render(height=480, width=640, camera_id='top')
         obs['images']['angle'] = physics.render(height=480, width=640, camera_id='angle')
         obs['images']['vis'] = physics.render(height=480, width=640, camera_id='front_close')
-
-
-        height,width=480,640
-
-        c_id1 = physics.model.name2id('top', 'camera')
-        c_id2 = physics.model.name2id('angle', 'camera')
-        c_id3 = physics.model.name2id('front_close', 'camera')
-
-        k1 = make_intrinsics(physics,width,height,c_id1)
-        k2 = make_intrinsics(physics,width,height,c_id2)
-        k3 = make_intrinsics(physics,width,height,c_id3)
-
-        d1 = physics.render(height=480, width=640, camera_id='top',depth=True)
-        d2 = physics.render(height=480, width=640, camera_id='angle',depth=True)
-        d3 = physics.render(height=480, width=640, camera_id='front_close',depth=True)
-
-        od1 = o3d.geometry.Image(d1.astype(np.float32))
-        od2 = o3d.geometry.Image(d2.astype(np.float32))
-        od3 = o3d.geometry.Image(d3.astype(np.float32))
+        
+        img = Image.fromarray(obs['images']['angle'])
+        prompt = 'red box'
+        bbox = self.florence.text_bbox(prompt, img, False)['<OPEN_VOCABULARY_DETECTION>']['bboxes']
 
         obs['pc'] = dict()
-        obs['pc']['top'] = o3d.geometry.PointCloud.create_from_depth_image(od1, k1)
-        obs['pc']['angle'] = o3d.geometry.PointCloud.create_from_depth_image(od2, k2)
-        obs['pc']['front_close'] = o3d.geometry.PointCloud.create_from_depth_image(od3, k3)
+        obs['pc']['angle'] = self.get_pc(physics,bbox)
 
-        # obs['depths'] = dict()
-        # obs['depths']['top'] = physics.render(height=480, width=640, camera_id='top',depth=True)
-        # obs['depths']['angle'] = physics.render(height=480, width=640, camera_id='angle',depth=True)
-        # obs['depths']['vis'] = physics.render(height=480, width=640, camera_id='front_close',depth=True)
         return obs
 
     def get_reward(self, physics):

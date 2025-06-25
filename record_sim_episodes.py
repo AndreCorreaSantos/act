@@ -4,6 +4,8 @@ import numpy as np
 import argparse
 import matplotlib.pyplot as plt
 import h5py
+import open3d as o3d
+import sys
 
 from constants import PUPPET_GRIPPER_POSITION_NORMALIZE_FN, SIM_TASK_CONFIGS
 from ee_sim_env import make_ee_sim_env
@@ -109,6 +111,8 @@ def main(args):
             episode_replay.append(ts)
 
             print(ts.observation['pc']['angle'])
+            # sys.exit()
+            
 
             if onscreen_render:
                 plt_img.set_data(ts.observation['images'][render_cam_name])
@@ -142,10 +146,12 @@ def main(args):
         data_dict = {
             '/observations/qpos': [],
             '/observations/qvel': [],
+            '/observations/pc': [],
             '/action': [],
         }
         for cam_name in camera_names:
             data_dict[f'/observations/images/{cam_name}'] = []
+            # data_dict[f'/observations/pc/{cam_name}'] = []
 
         # because the replaying, there will be eps_len + 1 actions and eps_len + 2 timesteps
         # truncate here to be consistent
@@ -158,11 +164,17 @@ def main(args):
         while joint_traj:
             action = joint_traj.pop(0)
             ts = episode_replay.pop(0)
+            
             data_dict['/observations/qpos'].append(ts.observation['qpos'])
             data_dict['/observations/qvel'].append(ts.observation['qvel'])
+            data_dict['/observations/pc'].append(ts.observation['pc'])
             data_dict['/action'].append(action)
+            
             for cam_name in camera_names:
                 data_dict[f'/observations/images/{cam_name}'].append(ts.observation['images'][cam_name])
+                # data_dict[f'/observations/pc/{cam_name}'].append(ts.observation['pc'][cam_name])
+
+        # .PLY --> point clouds
 
         # HDF5
         t0 = time.time()
@@ -171,11 +183,14 @@ def main(args):
             root.attrs['sim'] = True
             obs = root.create_group('observations')
             image = obs.create_group('images')
+            # point_cloud = obs.create_group('pc')
             for cam_name in camera_names:
                 _ = image.create_dataset(cam_name, (max_timesteps, 480, 640, 3), dtype='uint8',
                                          chunks=(1, 480, 640, 3), )
+                # _ = point_cloud.create_dataset(cam_name, (max_timesteps,), ) # SAVE POINT CLOUDS HERE, SHAPE: 
             # compression='gzip',compression_opts=2,)
             # compression=32001, compression_opts=(0, 0, 0, 0, 9, 1, 1), shuffle=False)
+            pc = obs.create_dataset('pc',(max_timesteps,))
             qpos = obs.create_dataset('qpos', (max_timesteps, 14))
             qvel = obs.create_dataset('qvel', (max_timesteps, 14))
             action = root.create_dataset('action', (max_timesteps, 14))
