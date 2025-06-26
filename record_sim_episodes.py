@@ -198,7 +198,10 @@ def main(args):
             action = root.create_dataset('action', (max_timesteps, 14))
 
             for name, array in data_dict.items():
+                if name == '/observations/pc':
+                    continue  
                 root[name][...] = array
+
         print(f'Saving: {time.time() - t0:.1f} secs\n')
 
     print(f'Saved to {dataset_dir}')
